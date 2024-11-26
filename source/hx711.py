@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-from hx711 import HX711
+from pitl.source.hx711 import HX711
 from RPi import GPIO
 import logging
 from datetime import datetime, timedelta
