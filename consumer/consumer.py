@@ -5,6 +5,7 @@ from typing import Any
 import urllib.parse
 import re
 import math
+import configparser
 
 import requests
 import matplotlib
@@ -229,8 +230,39 @@ class SQLiteStore(Provider):
         df.plot.line(xseries, yseries, **plot_args)
         matplotlib.pyplot.show()
 
+def server(stores):
+    from flask import Flask, request
+    app = Flask(__name__)
 
-if __name__ == '__main__':
-    store = SQLiteStore('/Users/casey/data/cats/','weights.db','measurements', 'http://cats.local:8000', scale_factor=-10.97, offset = -35800)
-    store2 = SQLiteStore('/Users/casey/data/cats/','weights2.db','measurements', 'http://cam.local:8000', scale_factor=10.97, offset=-145700, plotcolor="red")
+    @app.route('/ingest/<store>',methods=["post"])
+    def ingest(store):
+        print(f'Raw data {request.get_data(as_text=True)}')
+        data = request.get_json()
+        print(f'Received data {data}')
+        stores[int(store)].writeall(data)
+        return f"Wrote {len(data)} rows"
+    @app.route('/')
+    def index():
+        return "Hello, world"
+
+    return app
+
     
+if __name__ == '__main__':
+    stores = []
+    try:
+        config = configparser.ConfigParser()
+        config.read(os.environ.get('CONFIG_FILE', 'config.ini'))
+    except Exception:
+        print('Unable to load config file. Not starting.')
+
+    for sect in config.sections():
+        datadir = config[sect].get('DATA_DIR')
+        dbfile = config[sect].get('DB_FILE')
+        dbtable = config[sect].get('DB_TABLE')
+
+        stores.append(SQLiteStore(datadir,dbfile,dbtable,None))
+
+    app = server(stores)
+    app.run(host='0.0.0.0',port=8000)
+
