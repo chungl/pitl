@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-from pitl.source.hx711 import HX711
+from hx711 import HX711
 from RPi import GPIO
 import logging
 from datetime import datetime, timedelta
@@ -7,6 +7,7 @@ from sqlite3 import OperationalError
 import requests
 import os
 
+from rolling import Rolling
 print('Measure: Initializing...')
 from db import con, cur
 
@@ -33,8 +34,10 @@ if config is None or config[1] != g_factor or config[2] != offset:
     config =cur.execute("SELECT id FROM configs ORDER BY created_at DESC LIMIT 1").fetchone()
 config_id = config[0]
 
+
 recording=False
 threshold_time=datetime.now()
+rolling_pounds = Rolling(window=3)
 try:
     hx711 = HX(
         dout_pin=22,
@@ -53,7 +56,9 @@ try:
                 print(f"{ts} {data:12,} long; {g:12,}g; {p:3} pounds")
             cur.execute(f"INSERT INTO measurements (ts, raw, config_id) VALUES (?,?,?)", (ts, data, config_id))
             con.commit()
-            if p > 12 and p < 100:
+            rolling_pounds.append(p)
+            rpmed = rolling_pounds.median()
+            if rpmed > 12 and rpmed < 100:
                 if not recording:
                     if DEBUG:
                         print(f'{datetime.now()} Starting recording: {p} lbs')
