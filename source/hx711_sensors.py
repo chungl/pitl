@@ -29,7 +29,7 @@ DEBUG = os.environ.get('DEBUG', False)
 
 config = cur.execute("SELECT id, g_factor, raw_offset FROM configs ORDER BY created_at DESC LIMIT 1").fetchone()
 if config is None or config[1] != g_factor or config[2] != offset:
-    cur.execute("INSERT INTO configs (g_factor, raw_offset) VALUES (?,?))",(g_factor, offset))
+    cur.execute("INSERT INTO configs (g_factor, raw_offset) VALUES (?,?)",(g_factor, offset))
     con.commit()
     config =cur.execute("SELECT id FROM configs ORDER BY created_at DESC LIMIT 1").fetchone()
 config_id = config[0]
