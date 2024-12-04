@@ -14,7 +14,6 @@ from datetime import datetime, timedelta
 from scipy import stats
 import subprocess
 
-
 def walk(path):
     for dirpath, dirs, filenames in os.walk(path):
         for f in filenames:
@@ -230,24 +229,101 @@ class SQLiteStore(Provider):
         df.plot.line(xseries, yseries, **plot_args)
         matplotlib.pyplot.show()
 
-def server(stores):
+def server(stores, config):
     from flask import Flask, request
+    from flask_socketio import SocketIO
+
+    import random
+
+    DEBUG = config.getboolean('debug')
     app = Flask(__name__)
+    socketio = SocketIO(app)
 
     @app.route('/ingest/<store>',methods=["post"])
     def ingest(store):
-        print(f'Raw data {request.get_data(as_text=True)}')
         data = request.get_json()
-        print(f'Received data {data}')
+        if DEBUG:
+            print(f'Received data {data}')
         stores[int(store)].writeall(data)
         return f"Wrote {len(data)} rows"
     @app.route('/')
     def index():
         return "Hello, world"
-
-    return app
-
     
+    @app.route('/stream')
+    def stream():
+        return """
+<!DOCTYPE html>
+<html>
+<head>
+<title>pitl</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js" integrity="sha512-q/dWJ3kcmjBLU4Qc47E4A9kTB4m3wuTY7vkFJDTZKjTs8jhyGQnaUrxa0Ytd0ssMZhbNua9hE+E7Qv1j+DyZwA==" crossorigin="anonymous"></script>
+</head>
+<body>
+ <div id="log" style="white-space: pre-wrap;">
+    <p>Connecting...</p>
+ </div>
+ <script type="text/javascript" charset="utf-8">
+    var socket = io();
+    const log = document.getElementById('log');
+
+    const buildPoint = (data) => {
+        const el = document.createElement('div');
+        el.innerHTML = data.join(' ');
+        return el;
+    }
+
+    const renderPoints = (...elements) => {
+        log.prepend(...elements.reverse());
+        Array.from(log.children).slice(10).forEach(child => {
+            child.remove()
+        })
+    };
+
+    socket.on('connect', function() {
+        socket.emit('my event', {data: "I'm connected!"});
+        const p = document.createElement('p');
+        p.innerHTML = 'Connected'
+        log.prepend(p)
+    });
+    
+    socket.on('data', ({data}) => {
+        renderPoints(buildPoint(data));
+    });
+
+    socket.on('batch', ({data})=>{
+       renderPoints(...data.map(buildPoint));
+    });
+</script>
+</body>
+</html>
+"""
+
+    def emit(data):
+        if DEBUG:
+            print(f'Sending data {data}')
+        socketio.emit('data', {'data': data})
+
+    def rand():
+        return (datetime.now().isoformat(), random.randint(0,1000))
+    
+    @socketio.on('connection')
+    def test_connect(auth):
+        if DEBUG:
+            print('Received connection request')
+        emit('my response', {'data': 'Connected'})
+
+    def setup_mock_stream():
+        from apscheduler.schedulers.background import BackgroundScheduler
+        import atexit
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(lambda: emit(rand()), trigger='interval', seconds=1)
+        scheduler.start()
+        atexit.register(lambda: scheduler.shutdown)
+
+    return app, socketio, setup_mock_stream
+
+
 if __name__ == '__main__':
     stores = []
     try:
@@ -257,12 +333,18 @@ if __name__ == '__main__':
         print('Unable to load config file. Not starting.')
 
     for sect in config.sections():
-        datadir = config[sect].get('DATA_DIR')
+        if sect in ['SERVER']:
+            continue
+        datadir = os.path.join(config[sect].get('DATA_DIR'),config[sect].get('DATA_DIR_REL', ''))
         dbfile = config[sect].get('DB_FILE')
         dbtable = config[sect].get('DB_TABLE')
-
+        print(f'Initializing store {datadir} {dbfile} {dbtable}')
         stores.append(SQLiteStore(datadir,dbfile,dbtable,None))
 
-    app = server(stores)
-    app.run(host='0.0.0.0',port=8000)
+    if config.has_section('SERVER'):
+        server_config = config['SERVER']
+        app, socketio, setup_mock_stream = server(stores, server_config)
+        if server_config.getboolean('mock_stream', fallback=False):
+            setup_mock_stream()
+        socketio.run(app, host=server_config.get('port','0.0.0.0'),port=server_config.getint('port',8000))        
 
