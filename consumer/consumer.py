@@ -261,10 +261,11 @@ def server(stores, config):
 </head>
 <body>
  <div id="log" style="white-space: pre-wrap;">
-    <p>Connecting...</p>
+    <div>Connecting...</div>
  </div>
  <script type="text/javascript" charset="utf-8">
     var socket = io();
+    var logSize = 10;
     const log = document.getElementById('log');
 
     const buildPoint = (data) => {
@@ -275,16 +276,18 @@ def server(stores, config):
 
     const renderPoints = (...elements) => {
         log.prepend(...elements.reverse());
-        Array.from(log.children).slice(10).forEach(child => {
-            child.remove()
-        })
+        if (logSize > 0) {
+            Array.from(log.children).slice(logSize).forEach(child => {
+                child.remove()
+            })
+        }
     };
 
     socket.on('connect', function() {
         socket.emit('my event', {data: "I'm connected!"});
-        const p = document.createElement('p');
-        p.innerHTML = 'Connected'
-        log.prepend(p)
+        const el = document.createElement('div');
+        el.innerHTML = 'Connected'
+        log.prepend(el)
     });
     
     socket.on('data', ({data}) => {
