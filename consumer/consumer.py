@@ -245,6 +245,7 @@ def server(stores, config):
         if DEBUG:
             print(f'Received data {data}')
         stores[int(store)].writeall(data)
+        emit_batch(data)
         return f"Wrote {len(data)} rows"
     @app.route('/')
     def index():
@@ -307,6 +308,11 @@ def server(stores, config):
             print(f'Sending data {data}')
         socketio.emit('data', {'data': data})
 
+    def emit_batch(data):
+        if DEBUG:
+            print(f'Sending batch of size {len(data)}')
+        socketio.emit('batch', {'data': data})
+
     def rand():
         return (datetime.now().isoformat(), random.randint(0,1000))
     
@@ -350,4 +356,3 @@ if __name__ == '__main__':
         if server_config.getboolean('mock_stream', fallback=False):
             setup_mock_stream()
         socketio.run(app, host=server_config.get('port','0.0.0.0'),port=server_config.getint('port',8000))        
-
