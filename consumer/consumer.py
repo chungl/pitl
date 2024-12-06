@@ -65,8 +65,12 @@ class SQLiteStore(Provider):
         cur.execute(query, conditions_data).fetchall()
         cur.close()
 
-    def writeall(self, data):
+    def writeall(self, data, client_ts=None, server_ts=None):
         con = self.connection(timeout=20)
+        cur = con.cursor()
+        cur.execute('INSERT INTO uploads (client_ts, server_ts, rows) VALUES (?, ?, ?);',(client_ts, server_ts, len(data))) 
+        upload_id=cur.lastrowid
+        data=[x+[upload_id] for x in data]
         query = f"INSERT INTO {self.table} VALUES ({','.join('?'*len(data[0]))})"
         con.cursor().executemany(query, data)
         con.commit()
@@ -241,10 +245,15 @@ def server(stores, config):
 
     @app.route('/ingest/<store>',methods=["post"])
     def ingest(store):
-        data = request.get_json()
+        ts = datetime.now()
+        payload = request.get_json()
+
+        data = payload['data'] if isinstance(payload, dict) else payload
+        client_ts = payload.get('batch_time') if isinstance(payload, dict) else data[-1][0]
+            
         if DEBUG:
             print(f'Received data {data}')
-        stores[int(store)].writeall(data)
+        stores[int(store)].writeall(data,client_ts=client_ts, server_ts=ts)
         emit_batch(data)
         return f"Wrote {len(data)} rows"
     @app.route('/')
@@ -355,4 +364,4 @@ if __name__ == '__main__':
         app, socketio, setup_mock_stream = server(stores, server_config)
         if server_config.getboolean('mock_stream', fallback=False):
             setup_mock_stream()
-        socketio.run(app, host=server_config.get('port','0.0.0.0'),port=server_config.getint('port',8000))        
+        socketio.run(app, host=server_config.get('port','0.0.0.0'),port=server_config.getint('port',8000), allow_unsafe_werkzeug=True)        
